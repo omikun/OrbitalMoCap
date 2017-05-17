@@ -20,6 +20,8 @@ public class ArduinoConnector : MonoBehaviour {
 	public bool UseThread = false;
 
 	public GameObject go1, go2;
+	Quaternion q1, q2, q1Offset, q2Offset;
+	float beginTime;
 	private Thread t1;
 	private volatile bool workInProgress = false;
 
@@ -47,6 +49,9 @@ public class ArduinoConnector : MonoBehaviour {
             t1 = new Thread(PollQuats) { Name = "Thread 1" };
             t1.Start();
         }
+		q1 = go1.transform.rotation;
+		q2 = go2.transform.rotation;
+		beginTime = Time.time;
     }
 
     public void WriteToArduino(string message)
@@ -61,12 +66,31 @@ public class ArduinoConnector : MonoBehaviour {
         float x = float.Parse(tokens[1+offset]);
         float y = float.Parse(tokens[2+offset]);
         float z = float.Parse(tokens[3+offset]);
-        return new Quaternion(x, y, z, w);
+		//unity x y z
+		//ardui y z x
+		if (InitPos)
+		{
+            return new Quaternion(y, z, x, w);
+		} else {
+			if (offset == 0)
+                return new Quaternion(y, z, x, w);// * q1Offset;
+            else
+                return new Quaternion(y, z, x, w);// * q2Offset;
+		}
+        //return new Quaternion(x, y, z, w);
     }
 
 	string sharedStr = "initial";
+	bool InitPos = true;
     void Update()
     {
+		if (InitPos && Time.time - beginTime > 10)
+		{
+			q1Offset = go1.transform.rotation;
+			q2Offset = go2.transform.rotation;
+			InitPos = false;
+			Debug.Log("Finished initialization");
+		}
 		if (UseThread)
         {
             string lastStr = null;
@@ -118,6 +142,7 @@ public class ArduinoConnector : MonoBehaviour {
         }
     }
 
+		bool firstFlag = true;
 	void OldUpdate()
 	{
         var str = ReadFromArduino(.05f);
@@ -134,6 +159,11 @@ public class ArduinoConnector : MonoBehaviour {
 #if true
         if (tokens.Length == 9)
         {
+			if (firstFlag)
+			{
+				firstFlag = false;
+				beginTime = Time.time;
+			}
             //proceed
             go1.transform.rotation = ToQ(tokens, 0);
             go2.transform.rotation = ToQ(tokens, 4);
