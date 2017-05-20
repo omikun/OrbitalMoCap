@@ -21,6 +21,7 @@ public class ArduinoConnector : MonoBehaviour {
 
 	public GameObject go1, go2;
 	Quaternion q1, q2, q1Offset, q2Offset;
+	public GameObject q1go, q2go, q1Offsetgo, q2Offsetgo;
 	float beginTime;
 	private Thread t1;
 	private volatile bool workInProgress = false;
@@ -73,23 +74,59 @@ public class ArduinoConnector : MonoBehaviour {
             return new Quaternion(y, z, x, w);
 		} else {
 			if (offset == 0)
-                return new Quaternion(y, z, x, w);// * q1Offset;
-            else
-                return new Quaternion(y, z, x, w);// * q2Offset;
+			{
+				var inputQ = new Quaternion(y, -z, -x, w);
+				var newQ = inputQ * q1Offset;
+				//var newQ = q1Offset * inputQ ;
+                return newQ;
+			} else {
+				var inputQ = new Quaternion(y, -z, -x, w);
+				var newQ = inputQ * q2Offset;
+				//var newQ = q2Offset * inputQ;
+                return newQ;
+			}
 		}
         //return new Quaternion(x, y, z, w);
     }
 
 	string sharedStr = "initial";
+	float timeCount = 1;
 	bool InitPos = true;
+	bool FirstFrame = true;
     void Update()
     {
-		if (InitPos && Time.time - beginTime > 10)
+		if (FirstFrame)
 		{
-			q1Offset = go1.transform.rotation;
-			q2Offset = go2.transform.rotation;
-			InitPos = false;
-			Debug.Log("Finished initialization");
+			FirstFrame = false;
+            q1 = go1.transform.rotation;
+            q2 = go2.transform.rotation;
+		}
+
+		//debug
+		q1go.transform.rotation = q1;
+		q2go.transform.rotation = q2;
+
+		if (InitPos)
+		{
+			if (Time.time - beginTime > 10)
+			{
+                // initial * transform = desired
+                // inverse(initial) * initial * transform = inverse(initial) * desired
+                // transform = inverse(initial) * desired
+                // q1Offset = inverse(go transform) * q1;
+                q1Offset = Quaternion.Inverse(go1.transform.rotation) * q1;
+                q2Offset = Quaternion.Inverse(go2.transform.rotation) * q2;
+                InitPos = false;
+                Debug.Log("Finished initialization");
+            } else if (Time.time - beginTime > timeCount)
+			{
+				timeCount += 1;
+				Debug.Log("Tim: " + timeCount);
+			}
+		} else {
+			//debug
+			q1Offsetgo.transform.rotation = q1Offset;
+			q2Offsetgo.transform.rotation = q2Offset;
 		}
 		if (UseThread)
         {
@@ -142,10 +179,10 @@ public class ArduinoConnector : MonoBehaviour {
         }
     }
 
-		bool firstFlag = true;
+    bool firstFlag = true;
 	void OldUpdate()
 	{
-        var str = ReadFromArduino(.05f);
+        var str = ReadFromArduino(.01f);
         string[] tokens = str.Split(',');
         //Debug.Log("length: " + tokens.Length);
         //Debug.Log(tokens[0] + " " + tokens[4] + " " + tokens[8]);
