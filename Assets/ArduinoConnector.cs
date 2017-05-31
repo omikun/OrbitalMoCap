@@ -7,14 +7,9 @@ using System;
 using System.Collections;
 using System.IO.Ports;
 using System.Threading;
+using System.Collections.Generic;
 
-[System.Serializable]
-public class Sensor {
-    public GameObject go;
-    //debug
-    public GameObject goiq, goinit, godq;
-    Quaternion iq, iqi, dq, cq, dqiqi, iqidq, tq1, tq2;
-}
+
 public class ArduinoConnector : MonoBehaviour {
 
     /* The serial port where the Arduino is connected. */
@@ -25,13 +20,8 @@ public class ArduinoConnector : MonoBehaviour {
     public int baudrate = 115200;
     private SerialPort stream;
 	public bool UseThread = false;
-
-	public GameObject go1, go2, go3, go4;
-	public GameObject goiq1, goiq2, goinitq1, goinitq2, goinitq3, goinitq4, godq1, godq2, godq3, godq4;
-	Quaternion iq1, iqi1, dq1, cq1, dqiqi1, iqidq1, tq1, tq12;
-	Quaternion iq2, iqi2, dq2, cq2, dqiqi2, iqidq2, tq2, tq22;
-	Quaternion iq3, iqi3, dq3, cq3, dqiqi3, iqidq3, tq3, tq32;
-	Quaternion iq4, iqi4, dq4, cq4, dqiqi4, iqidq4, tq4, tq42;
+    public bool UseRawInput = false;
+    public Sensor[] sensors = new Sensor[4];
 	float beginTime;
 	private Thread t1;
 	private volatile bool workInProgress = false;
@@ -69,65 +59,7 @@ public class ArduinoConnector : MonoBehaviour {
         stream.WriteLine(message);
         stream.BaseStream.Flush();
     }
-    Quaternion mulRot(Quaternion q, GameObject g1)
-	{
-		return q * rot(g1);
-	}
-	Quaternion mulRot(GameObject g1, Quaternion q)
-	{
-		return rot(g1) * q;
-	}
-	Quaternion rot(GameObject go)
-	{
-		return go.transform.rotation;
-	}
-	void setRot(GameObject go, Quaternion rot)
-	{
-		go.transform.rotation = rot;
-	}
-	Quaternion rawInputQ, riq1, riq2, riq3, riq4;
-	Quaternion ToQ(string[] tokens, int offset=0)
-    {
-        float w = float.Parse(tokens[0+offset]);//, CultureInfo.InvariantCulture.NumberFormat);
-        float x = float.Parse(tokens[1+offset]);
-        float y = float.Parse(tokens[2+offset]);
-        float z = float.Parse(tokens[3+offset]);
-        //unity x y z
-        //ardui y z x
-        var inputQ = new Quaternion(x, y, z, w);
-        rawInputQ = new Quaternion(x, y, z, w);
-        rawInputQ = new Quaternion(y, -z, -x, w);
-        rawInputQ = new Quaternion(-y, z, x, w);
-        if (offset == 0)
-        {
-            riq1 = rawInputQ;
-        }
-        else
-        {
-            riq2 = rawInputQ;
-        }
-		if (InitPos)
-		{
-			if (offset == 0)
-			{
-				goiq1.transform.rotation = rawInputQ;
-            } else { 
-				goiq2.transform.rotation = rawInputQ;
-			}
-		} else {
-	//iq1, iqi1, dq1, cq1, dqiqi1, iqidq1, tq1, tq12;
-			if (offset == 0)
-			{
-				goiq1.transform.rotation = rawInputQ;
-				inputQ = rawInputQ * dqiqi1;
-			} else {
-				goiq2.transform.rotation = rawInputQ;
-				inputQ = rawInputQ * dqiqi2;
-			}
-		}
-        return inputQ;
-        //return new Quaternion(x, y, z, w);
-    }
+	
 
 	string sharedStr = "initial";
 	float timeCount = 1;
@@ -138,14 +70,10 @@ public class ArduinoConnector : MonoBehaviour {
 		if (FirstFrame)
 		{
 			FirstFrame = false;
-			dq1 = rot(go1);
-			dq2 = rot(go2);
-			dq3 = rot(go3);
-			dq4 = rot(go4);
-			setRot(godq1, dq1);
-			setRot(godq2, dq2);
-			setRot(godq3, dq3);
-			setRot(godq4, dq4);
+            foreach (var sensor in sensors)
+            {
+                sensor.SetDesiredQ();
+            }
 		}
 
         if (UseThread)
@@ -164,7 +92,7 @@ public class ArduinoConnector : MonoBehaviour {
 		{
 			if (Time.time - beginTime > 25)
 			{
-				InitializeOffsets();
+                InitializeOffsets(); //also called from Master.cs
                 Debug.Log("Finished initialization");
             } else if (Time.time - beginTime > timeCount)
 			{
@@ -175,30 +103,76 @@ public class ArduinoConnector : MonoBehaviour {
 			//debug
 		}
     }
-	public void InitializeOffsets()
-	{
+    public void InitializeOffsets()
+    {
         InitPos = false;
-        // initial * transform = desired
-        // inverse(initial) * initial * transform = inverse(initial) * desired
-        // transform = inverse(initial) * desired
-        // q1Offset = inverse(go transform) * q1;
-        setRot(goinitq1, riq1);
-        setRot(goinitq2, riq2);
-        setRot(goinitq3, riq3);
-        setRot(goinitq4, riq4);
-        iqi1 = Quaternion.Inverse(riq1);
-        iqi2 = Quaternion.Inverse(riq2);
-        iqi3 = Quaternion.Inverse(riq3);
-        iqi4 = Quaternion.Inverse(riq4);
-        dqiqi1 = dq1 * iqi1;
-        dqiqi2 = dq2 * iqi2;
-        dqiqi3 = dq3 * iqi3;
-        dqiqi4 = dq4 * iqi4;
-
-		Debug.Log("Initialized offsets");
+        foreach (var sensor in sensors)
+        {
+            sensor.InitializeOffset();
+        }
     }
+	
 	//separate thread read every 40ms
-	void PollQuats()
+    bool setupComplete = false;
+	void OldUpdate()
+	{
+        var str = ReadFromArduino(.01f);
+        if (str == null)
+        {
+            return;
+        }
+        string[] tokens = str.Split(',');
+        //Debug.Log("length: " + tokens.Length);
+        //Debug.Log(tokens[0] + " " + tokens[4] + " " + tokens[8]);
+        float w = 0;
+        if (!setupComplete && float.TryParse(tokens[0], out w) == false)
+        {
+            Debug.Log("1Read from arduino: " + str + " token1: |" + tokens[0] + "|");
+            if (tokens[0] == "Setup" && tokens[1] == "complete")//tokens.Length == 9)
+            {
+                setupComplete = true;
+                //TODO limit reads to only available sensors
+                Debug.Log("Reading from " + float.Parse(tokens[2]) + " sensors");
+            }
+            return;
+        }
+        //Debug.Log("Read from arduino: " + str + " w: " + w);
+        if (setupComplete == true)
+        {
+            //proceed
+            int i = 0;
+            foreach (var sensor in sensors)
+            {
+                //sensor.go.transform.rotation = ToQ(tokens, i);
+                sensor.Update(tokens, i*4, InitPos);//|UseRawInput);
+                i++;
+            }
+        }
+        else
+        {
+            Debug.Log("2Read from arduino: " + str);
+        }
+	}
+    public string ReadFromArduino(float timeout = 0)
+    {
+        //stream.ReadTimeout = (int)timeout;
+        try
+        {
+            //TODO stream.Read and check for buffer size
+            return stream.ReadLine();
+        }
+        catch (TimeoutException)
+        {
+            return null;
+        }
+    }
+    
+    ///////////////////////////////////////////////////
+    ///////////////////////////////////////////////////
+    //  Asynchronous operation via separate thread
+    //  better to use asynchronous serial read instead
+    ///////////////////////////////////////////////////
+    void PollQuats()
 	{
 		var str = "test";
 		str = ReadFromArduino(.05f);
@@ -221,12 +195,12 @@ public class ArduinoConnector : MonoBehaviour {
 			}
             //Debug.Log("Read from arduino: " + str + " w: " + w);
 			sharedStr = "Read from arduino: " + str + " w: " + w;
-#if true
+#if false
 		if (tokens.Length == 9)
         {
-            //proceed
-            go1.transform.rotation = ToQ(tokens, 0);
-            go2.transform.rotation = ToQ(tokens, 4);
+            //proceed //update me
+            //go1.transform.rotation = ToQ(tokens, 0);
+            //go2.transform.rotation = ToQ(tokens, 4);
 		}else {
             //Debug.Log("Read from arduino: " + str);
 			sharedStr = "Read from arduino: " + str;
@@ -236,64 +210,6 @@ public class ArduinoConnector : MonoBehaviour {
         }
     }
 
-    bool firstFlag = true;
-    bool setupComplete = false;
-	void OldUpdate()
-	{
-        var str = ReadFromArduino(.01f);
-        if (str == null)
-        {
-            return;
-        }
-        string[] tokens = str.Split(',');
-        //Debug.Log("length: " + tokens.Length);
-        //Debug.Log(tokens[0] + " " + tokens[4] + " " + tokens[8]);
-        float w = 0;
-        if (float.TryParse(tokens[0], out w) == false)
-        {
-            Debug.Log("1Read from arduino: " + str + " token1: |" + tokens[0] + "|");
-            if (tokens[0] == "Setup" && tokens[1] == "complete")//tokens.Length == 9)
-            {
-                setupComplete = true;
-                Debug.Log("Reading from " + float.Parse(tokens[2]) + " sensors");
-            }
-            return;
-        }
-        //Debug.Log("Read from arduino: " + str + " w: " + w);
-#if true
-        if (setupComplete == true)
-        {
-			if (firstFlag)
-			{
-				firstFlag = false;
-				beginTime = Time.time;
-			}
-            //proceed
-            go1.transform.rotation = ToQ(tokens, 0);
-            go2.transform.rotation = ToQ(tokens, 4);
-            go3.transform.rotation = ToQ(tokens, 8);
-            go4.transform.rotation = ToQ(tokens, 12);
-        }
-        else
-        {
-            Debug.Log("2Read from arduino: " + str);
-        }
-        
-#endif
-	}
-    public string ReadFromArduino(float timeout = 0)
-    {
-        //stream.ReadTimeout = (int)timeout;
-        try
-        {
-            return stream.ReadLine();
-        }
-        catch (TimeoutException)
-        {
-            return null;
-        }
-    }
-    
 
     public IEnumerator AsynchronousReadFromArduino(Action<string> callback, Action fail = null, float timeout = float.PositiveInfinity)
     {
