@@ -144,7 +144,7 @@ public class ArduinoConnector : MonoBehaviour {
             foreach (var sensor in sensors)
             {
                 //sensor.go.transform.rotation = ToQ(tokens, i);
-                sensor.Update(tokens, i*4, InitPos);//|UseRawInput);
+                sensor.Update(tokens, i*4, InitPos|UseRawInput);
                 i++;
             }
         }
