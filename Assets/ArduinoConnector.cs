@@ -88,6 +88,7 @@ public class ArduinoConnector : MonoBehaviour {
             OldUpdate();
 		}
 
+        InitPos = false;
 		if (InitPos)
 		{
 			if (Time.time - beginTime > 25)
@@ -132,7 +133,7 @@ public class ArduinoConnector : MonoBehaviour {
             {
                 setupComplete = true;
                 //TODO limit reads to only available sensors
-                Debug.Log("Reading from " + float.Parse(tokens[2]) + " sensors");
+                Debug.Log("Setup complete! W/ " + float.Parse(tokens[2]) + " sensors");
             }
             return;
         }
