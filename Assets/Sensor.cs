@@ -30,6 +30,13 @@ public class Sensor {
 		initMyDQ = true;
 		myDQ.Clear();
 	}
+	public void AddTo(List<float> list)
+	{
+		list.Add(go.transform.rotation.w);
+		list.Add(go.transform.rotation.x);
+		list.Add(go.transform.rotation.y);
+		list.Add(go.transform.rotation.z);
+	}
 	void InitializeOffset_()
 	{
 		//relative rotation axis transform

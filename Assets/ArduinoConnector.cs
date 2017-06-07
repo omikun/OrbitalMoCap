@@ -24,6 +24,8 @@ public class ArduinoConnector : MonoBehaviour {
     public Sensor[] sensors = new Sensor[4];
 	float beginTime;
 	private Thread t1;
+    OrbitalIO ae = new OrbitalIO();
+    List<float> animationStore = new List<float>();
 	private volatile bool workInProgress = false;
 
     public void Open () {
@@ -51,7 +53,13 @@ public class ArduinoConnector : MonoBehaviour {
             t1.Start();
         }
 		beginTime = Time.time;
+
+        if (animationStore == null)
+        {
+            Debug.Log("Animation list not initialized not found");
+        }
     }
+    
 
     public void WriteToArduino(string message)
     {
@@ -65,8 +73,29 @@ public class ArduinoConnector : MonoBehaviour {
 	float timeCount = 1;
 	bool InitPos = true;
 	bool FirstFrame = true;
+    int frameNum = 0;
+    bool readCSV = true;
     void Update()
     {
+        if (readCSV)
+        {
+            animationStore = ae.ReadCSV("unitychan-test1");
+            readCSV = false;
+            return;
+        } else {
+            var i = frameNum * numSensors * 4;
+            foreach (var sensor in sensors)
+            {
+                var quat = new Quaternion(animationStore[i+1],
+                                          animationStore[i+2],
+                                          animationStore[i+3],
+                                          animationStore[i+0]
+                );
+                sensor.goDebug.transform.rotation = quat;
+                i += 4;
+            }
+            frameNum++;
+        }
 		if (FirstFrame)
 		{
 			FirstFrame = false;
@@ -101,7 +130,11 @@ public class ArduinoConnector : MonoBehaviour {
 				Debug.Log("Time: " + timeCount);
 			}
 		} else {
-			//debug
+			if (Time.time - beginTime > 10)
+            {
+                ae.Savecsv("unitychan-test1", numSensors, animationStore);
+                beginTime = Time.time;
+            }
 		}
     }
     public void InitializeOffsets()
@@ -115,6 +148,7 @@ public class ArduinoConnector : MonoBehaviour {
 	
 	//separate thread read every 40ms
     bool setupComplete = false;
+    int numSensors = 4;
 	void OldUpdate()
 	{
         var str = ReadFromArduino(.01f);
@@ -133,7 +167,8 @@ public class ArduinoConnector : MonoBehaviour {
             {
                 setupComplete = true;
                 //TODO limit reads to only available sensors
-                Debug.Log("Setup complete! W/ " + float.Parse(tokens[2]) + " sensors");
+                numSensors = (int)float.Parse(tokens[2]);
+                Debug.Log("Setup complete! W/ " + numSensors + " sensors");
             }
             return;
         }
@@ -147,6 +182,10 @@ public class ArduinoConnector : MonoBehaviour {
                 //sensor.go.transform.rotation = ToQ(tokens, i);
                 sensor.Update(tokens, i*4, InitPos|UseRawInput);
                 i++;
+            }
+            foreach (var sensor in sensors)
+            {
+                sensor.AddTo(animationStore);
             }
         }
         else
