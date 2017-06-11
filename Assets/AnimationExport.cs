@@ -7,11 +7,12 @@ using System.IO;
 public class OrbitalIO
 // : MonoBehaviour
 {
-	public List<float> ReadCSV(string model)
+	public List<float> ReadCSV(string model, int numSensors)
 	{
-        string filePath = model + ".csv";
+        string filePath = model + "_" + numSensors.ToString() + "_.csv";
 		List<float> ret = new List<float>();
         var rawText = File.ReadAllLines(filePath);
+		Debug.Log("Read " + rawText.Length + " lines");
 		for (int i = 0; i < rawText.Length; i++)
 		{
             string[] tokens = rawText[i].Split(',');

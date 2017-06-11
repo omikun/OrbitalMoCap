@@ -24,11 +24,19 @@ public class Sensor {
         // transform = inverse(initial) * desired
         // q1Offset = inverse(go transform) * q1;
         //goinit.transform.rotation = riq; 
-        iqi = Quaternion.Inverse(riq);
-        dqiqi = dq * iqi;
+		bool newInit = true;
+		if (newInit) {
+            var rq = coordTransformQ.GetQ();
+            var rqi = Quaternion.Inverse(rq);
+            var initialQ = rqi * riq * rq;
+            iqi = Quaternion.Inverse(initialQ);
+        } else {
+            iqi = Quaternion.Inverse(riq);
+        }
 
-		initMyDQ = true;
-		myDQ.Clear();
+        initMyDQ = true;
+		myDQ.SetQ(iqi * dq);
+		//myDQ.Clear();
 	}
 	public void AddTo(List<float> list)
 	{
@@ -37,18 +45,7 @@ public class Sensor {
 		list.Add(go.transform.rotation.y);
 		list.Add(go.transform.rotation.z);
 	}
-	void InitializeOffset_()
-	{
-		//relative rotation axis transform
-        var rq = coordTransformQ.GetQ();
-        var rqi = Quaternion.Inverse(coordTransformQ.GetQ());
-        //return rq * rawInputQ;
-		//iq = riq;//go.transform.rotation;
-		//riq = raw input quat
-		iq = rqi * riq * rq;
-		iqi = Quaternion.Inverse(iq);
-		myDQ.SetQ(dq * iqi);
-    }
+	
 	bool initMyDQ = false;
 	public bool ShowGravity = false;
     public void Update(string[] tokens, int offset, bool InitPos)
@@ -56,12 +53,19 @@ public class Sensor {
         go.transform.rotation = ToQ(tokens, offset, InitPos);
 		if (initMyDQ)
 		{
-			InitializeOffset_();
+			InitializeOffset();
 			initMyDQ = false;
         }
 
         goDebug.transform.rotation = go.transform.rotation;
+		grav.transform.rotation = riq;
     }
+	public void DebugUpdate()
+	{
+		var temp = TransformQ(false, grav.transform.rotation);
+		go.transform.rotation = temp;
+		goDebug.transform.rotation = temp;
+	}
     public Quaternion ToQ(string[] tokens, int offset, bool InitPos)
     {
         Quaternion rawInputQ;
@@ -74,12 +78,17 @@ public class Sensor {
         rawInputQ = new Quaternion(x, y, z, w);
         //rawInputQ = new Quaternion(y, -z, -x, w);
         rawInputQ = new Quaternion(-y, -z, x, w);
-        riq = rawInputQ;
 
         var gvr = GetGravity(new Quaternion(x, y, z, w));
 		var gvec = new Vector3(-gvr.y, -gvr.z, gvr.x);
+		return TransformQ(InitPos, rawInputQ);
+	}
+	Quaternion TransformQ(bool InitPos, Quaternion rawInputQ)
+	{
+        riq = rawInputQ;
+
 		//var gvec = gvr;
-        grav.transform.localPosition = gvec.normalized * 1.4f;
+        //grav.transform.localPosition = gvec.normalized * 1.4f;
         //goiq.transform.rotation = rawInputQ;
 		if (InitPos)
 		{
@@ -87,7 +96,8 @@ public class Sensor {
 			var rq = coordTransformQ.GetQ();
 			var rqi = Quaternion.Inverse(coordTransformQ.GetQ());
 			//return rq * rawInputQ;
-			return myDQ.GetQ() * rqi * rawInputQ * rq;
+			var temp = rqi * riq * rq;
+			return temp * myDQ.GetQ();
             //return dqiqi * rqi * rawInputQ * rq;
             //return iqi * rawInputQ * dq;
 		}

@@ -21,12 +21,15 @@ public class ArduinoConnector : MonoBehaviour {
     private SerialPort stream;
 	public bool UseThread = false;
     public bool UseRawInput = false;
+    public bool UseArduino = true;
     public Sensor[] sensors = new Sensor[4];
 	float beginTime;
 	private Thread t1;
     OrbitalIO ae = new OrbitalIO();
     List<float> animationStore = new List<float>();
 	private volatile bool workInProgress = false;
+    bool setupComplete = false;
+    int numSensors = 4;
 
     public void Open () {
         // Opens the serial port
@@ -37,7 +40,10 @@ public class ArduinoConnector : MonoBehaviour {
 	}
 
 	void Start() {
-		Open();
+        if (UseArduino)
+        {
+            Open();
+        }
 		return;
         StartCoroutine
         (
@@ -75,12 +81,47 @@ public class ArduinoConnector : MonoBehaviour {
 	bool FirstFrame = true;
     int frameNum = 0;
     bool readCSV = true;
-    void Update()
+    float lastFrameTime = 0;
+    void SmoothMotion()
+    {
+        int lastN = 10;
+        float[] hist = new float[]{0f, 0f, 0f, 0f};
+        int i = numSensors;
+        int numComp = 4;
+        float[] lastAngles = new float[numSensors];
+        Quaternion[] lastQuats = new Quaternion[numSensors];
+        for (int sample = 0; i < animationStore.Count; sample++)
+        {
+            for (int iSensor = 0; i < numSensors; iSensor++, i+=4)
+            {
+                var curQuat = new Quaternion(animationStore[i+1],
+                                          animationStore[i+2],
+                                          animationStore[i+3],
+                                          animationStore[i+0]
+                );
+                float diff = Quaternion.Angle(lastQuats[iSensor], curQuat);
+                //var diff =animationStore[i] - hist[i - numSensors * numComp];
+                if (diff > 20f || diff < 20f)
+                {
+                    animationStore[i+0] = lastQuats[iSensor].x;
+                    animationStore[i+1] = lastQuats[iSensor].y;
+                    animationStore[i+2] = lastQuats[iSensor].z;
+                    animationStore[i+3] = lastQuats[iSensor].w;
+                } else {
+                    lastQuats[iSensor] = curQuat;
+                    hist[i] = (hist[i] * lastN + diff) / (lastN + 1);
+                }
+            }
+
+        }
+    }
+    void LoadFromFile()
     {
         if (readCSV)
         {
-            animationStore = ae.ReadCSV("unitychan-test1");
+            animationStore = ae.ReadCSV("unitychan-test1", numSensors);
             readCSV = false;
+            //SmoothMotion();
             return;
         } else {
             var i = frameNum * numSensors * 4;
@@ -92,10 +133,33 @@ public class ArduinoConnector : MonoBehaviour {
                                           animationStore[i+0]
                 );
                 sensor.goDebug.transform.rotation = quat;
+                sensor.go.transform.rotation = quat;
                 i += 4;
             }
-            frameNum++;
+            if (Time.time - beginTime > 5)
+            {
+                beginTime = Time.time;
+                Debug.Log("Played " + frameNum + " frames");
+            }
+            if (Time.time - lastFrameTime > .025)
+            {
+                lastFrameTime = Time.time;
+                frameNum++;
+            }
+            if (frameNum*numSensors*4 >= animationStore.Count)
+            {
+                frameNum = 0;
+                Debug.Log("starting over");
+            }
+            return;
         }
+    }
+
+    void Update()
+    {
+        //LoadFromFile();
+        //return;
+
 		if (FirstFrame)
 		{
 			FirstFrame = false;
@@ -114,7 +178,15 @@ public class ArduinoConnector : MonoBehaviour {
                 lastStr = sharedStr;
             }
 		} else {
-            OldUpdate();
+            if (UseArduino)
+            {
+                OldUpdate();
+            } else {
+                foreach (var sensor in sensors)
+                {
+                    sensor.DebugUpdate();
+                }
+            }
 		}
 
         InitPos = false;
@@ -132,7 +204,7 @@ public class ArduinoConnector : MonoBehaviour {
 		} else {
 			if (Time.time - beginTime > 10)
             {
-                ae.Savecsv("unitychan-test1", numSensors, animationStore);
+                ae.Savecsv("unitychan-test2", numSensors, animationStore);
                 beginTime = Time.time;
             }
 		}
@@ -147,8 +219,6 @@ public class ArduinoConnector : MonoBehaviour {
     }
 	
 	//separate thread read every 40ms
-    bool setupComplete = false;
-    int numSensors = 4;
 	void OldUpdate()
 	{
         var str = ReadFromArduino(.01f);
